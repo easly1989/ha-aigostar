@@ -25,6 +25,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .alibaba_api import AlibabaIoTClient
+from .fan import is_fan_device, register_for_token_refresh
 from .const import (
     AIGO_BRIGHT_MAX,
     AIGO_BRIGHT_MIN,
@@ -57,6 +58,10 @@ async def async_setup_entry(
 
     entities = []
     for dev in devices:
+        # fans are handled by fan.py; without this they would show up
+        # as unusable light entities
+        if is_fan_device(dev):
+            continue
         iot_id = dev.get("iotId", "")
         nick = dev.get("nickName") or dev.get("deviceName") or iot_id[:12]
         status = dev.get("status", 0)
@@ -69,9 +74,8 @@ async def async_setup_entry(
         )
         entities.append(AigostarLight(client, iot_id, nick, online=(status == 1), raw_device=dev))
 
-    # Register entities for token refresh
-    hass.data.setdefault(f"{DOMAIN}_entities", {})
-    hass.data[f"{DOMAIN}_entities"][entry.entry_id] = entities
+    # Register entities for token refresh (append: other platforms share this list)
+    register_for_token_refresh(hass, entry, entities)
 
     _LOGGER.info("Aigostar: creating %d light entities", len(entities))
     async_add_entities(entities, update_before_add=True)
