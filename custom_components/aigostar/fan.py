@@ -16,6 +16,7 @@ categoryKey "fan"):
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -44,6 +45,15 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=SCAN_INTERVAL_SECONDS)
+
+# After a service call Home Assistant immediately forces a refresh on polling
+# entities. The Alibaba cloud needs a few seconds to propagate the new value,
+# so that refresh still returns the OLD state and overwrites the one we just
+# set: the card flips back within a fraction of a second and it looks as if the
+# command never went through — which is why it feels like you have to press
+# twice. During this grace window we keep the optimistic state and ignore what
+# the cloud says.
+WRITE_GRACE_SECONDS = 12
 
 PRESET_TO_VALUE = {v: k for k, v in FAN_PRESET_MODES.items()}
 
@@ -132,6 +142,7 @@ class AigostarFan(FanEntity):
         self._mode: int = 0
         self._oscillating: bool = False
         self._available: bool = online
+        self._last_write: float = 0.0
 
     def update_token(self, new_token: str) -> None:
         """Update the iotToken after a refresh."""
@@ -186,6 +197,10 @@ class AigostarFan(FanEntity):
             self._oscillating = bool(int(props[PROP_FAN_OSCILLATE]))
 
     def update(self) -> None:
+        if time.monotonic() - self._last_write < WRITE_GRACE_SECONDS:
+            # A command was just sent: the cloud has not caught up yet, and
+            # reading it now would revert the state we just set.
+            return
         try:
             self._apply_props(self._client.get_properties_sync())
             self._available = True
@@ -215,11 +230,13 @@ class AigostarFan(FanEntity):
             self._speed = items[PROP_FAN_SPEED]
         if PROP_FAN_MODE in items:
             self._mode = items[PROP_FAN_MODE]
+        self._last_write = time.monotonic()
         self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs: Any) -> None:
         self._client.set_properties_sync({PROP_FAN_POWER: 0})
         self._is_on = False
+        self._last_write = time.monotonic()
         self.schedule_update_ha_state()
 
     def set_percentage(self, percentage: int) -> None:
@@ -233,6 +250,7 @@ class AigostarFan(FanEntity):
         self._client.set_properties_sync(items)
         self._speed = speed
         self._is_on = True
+        self._last_write = time.monotonic()
         self.schedule_update_ha_state()
 
     def set_preset_mode(self, preset_mode: str) -> None:
@@ -241,9 +259,11 @@ class AigostarFan(FanEntity):
         value = PRESET_TO_VALUE[preset_mode]
         self._client.set_properties_sync({PROP_FAN_MODE: value})
         self._mode = value
+        self._last_write = time.monotonic()
         self.schedule_update_ha_state()
 
     def oscillate(self, oscillating: bool) -> None:
         self._client.set_properties_sync({PROP_FAN_OSCILLATE: 1 if oscillating else 0})
         self._oscillating = oscillating
+        self._last_write = time.monotonic()
         self.schedule_update_ha_state()
