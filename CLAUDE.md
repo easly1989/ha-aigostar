@@ -116,6 +116,20 @@ curl -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json
   -d '{}' http://HA_IP:8123/api/services/aigostar/sync_devices
 ```
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on the fork, via `gh -R easly1989/ha-aigostar` (`origin` is the upstream, so always name the fork). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+single-context. See `docs/agents/domain.md`.
+
+### Token tools
+
+CBM: call `index_repository` once, then `search_graph` / `trace_path` before reading files.
+
 ## Language
 
 - Code, comments, docstrings, log messages: **English**
